@@ -2,20 +2,13 @@ package main
 
 import (
 	"corona-crawler/crawler"
-	"github.com/rs/zerolog"
-	"os"
-	"os/signal"
+	"github.com/rs/zerolog/log"
 )
 
 func main() {
-	logger := zerolog.New(zerolog.NewConsoleWriter())
-	logger.Info().Msg("Crawler started")
-
-	go crawler.Run()
-
-	done := make(chan os.Signal, 1)
-	signal.Notify(done, os.Interrupt)
-	<-done
-
-	logger.Info().Msg("shutting down")
+	log.Info().Msg("crawler started")
+	err := crawler.Run()
+	if err != nil {
+		log.Error().Err(err).Msg("crawler stopped after error")
+	}
 }

@@ -2,60 +2,51 @@ package crawler
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"github.com/go-resty/resty/v2"
-	"github.com/rs/zerolog/log"
-	"time"
 )
 
-func Run() {
-	storage, err := NewArticleStorage("./output.csv")
+var ErrNoMorePages = errors.New("no more pages")
+
+type Crawler struct {
+	*resty.Client
+
+	nextPage string
+}
+
+// NewCrawler
+// TODO: Not the best idea but should be good enough for now
+// https://<CMS_API>/<tenant>/categoryHistory/<category>/[YYYY/MM/DD]
+func NewCrawler(host string, tenant Tenant, category Category) *Crawler {
+	c := &Crawler{Client: resty.New()}
+
+	// First page
+	c.nextPage = fmt.Sprintf("%s/%d/categoryHistory/%d", host, tenant, category)
+
+	return c
+}
+
+func (c Crawler) NextPage() (*ArticlesPage, error) {
+	resp, err := c.R().Get(c.nextPage)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to create articles storage")
-		return
+		return nil, fmt.Errorf("failed to get data from API: %w", err)
 	}
-	defer func() {
-		err := storage.Close()
-		if err != nil {
-			log.Error().Err(err).Msg("failed to close storage")
-		}
-	}()
-
-	client := resty.New()
-
-	nextItemURL := CategoryHistoryRequest{
-		Host:     "https://feed-prod.unitycms.io",
-		Tenant:   TenantTwo,
-		Category: Schweiz,
-	}.String()
-
-	for range time.Tick(200 * time.Millisecond) {
-		resp, err := client.R().Get(nextItemURL)
-		if err != nil {
-			log.Error().Err(err).Msg("failed to get data from API")
-			return
-		}
-		if !resp.IsSuccess() {
-			log.Error().Int("status_code", resp.StatusCode()).Msg("non success status from api")
-			return
-		}
-
-		r := &CategoryHistoryResponse{}
-		err = json.Unmarshal(resp.Body(), r)
-		if err != nil {
-			log.Error().Err(err).Msg("failed to parse response")
-			return
-		}
-
-		for _, el := range r.Content.Elements {
-			err = storage.StoreArticle(Article{
-				ID:        el.ID,
-				Published: el.Content.Published,
-				Title:     el.Content.Title,
-			})
-			if err != nil {
-				log.Error().Err(err).Msg("failed to save item to storage")
-				return
-			}
-		}
+	if !resp.IsSuccess() {
+		return nil, fmt.Errorf("bad status from API (%d, %s)", resp.StatusCode(), resp.Status())
 	}
+
+	page := &ArticlesPage{}
+	err = json.Unmarshal(resp.Body(), page)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse API response: %w", err)
+	}
+
+	if page.Content.NextPage == nil {
+		return nil, ErrNoMorePages
+	}
+
+	c.nextPage = *page.Content.NextPage
+
+	return page, err
 }
