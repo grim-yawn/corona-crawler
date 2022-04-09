@@ -27,7 +27,7 @@ func NewCrawler(host string, tenant Tenant, category Category) *Crawler {
 	return c
 }
 
-func (c Crawler) NextPage() (*ArticlesPage, error) {
+func (c *Crawler) NextPage() (*ArticlesPage, error) {
 	resp, err := c.R().Get(c.nextPage)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get data from API: %w", err)

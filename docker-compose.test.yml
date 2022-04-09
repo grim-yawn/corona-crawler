@@ -1,0 +1,18 @@
+version: '3.8'
+services:
+  postgres:
+    image: postgres
+    ports:
+      - "5432:5435"
+    environment:
+      POSTGRES_DB: corona-crawler
+      POSTGRES_USER: corona-user
+      POSTGRES_PASSWORD: corona-password
+
+  test:
+    image: ${DOCKER_IMAGE_TAG}
+    ports:
+      - "8080:8080"
+    command:
+      - echo
+      - "TEST"
