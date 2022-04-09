@@ -17,12 +17,16 @@ func Run() error {
 		return fmt.Errorf("failed to create database: %w", err)
 	}
 
-	//today := time.Now()
-	//yearAgo := today.AddDate(-1, 0, 0)
+	today := time.Now()
+	yearAgo := today.AddDate(-1, 0, 0)
 
-	c := NewCrawler(cmsHost, TenantTwo, CategorySchweiz)
+	c := NewCrawler(db, cmsHost, TenantTwo, CategorySchweiz, today, yearAgo)
 	for range time.Tick(200 * time.Millisecond) {
 		page, err := c.NextPage()
+		if err == ErrNoMorePages {
+			log.Info().Msg("successfully parse all articles")
+			return nil
+		}
 		if err != nil {
 			return fmt.Errorf("failed to get next page: %w", err)
 		}
@@ -50,7 +54,7 @@ func Run() error {
 
 		// TODO: Debug
 		var count int64
-		err = db.Model(&ArticleModel{}).Count(&count).Error
+		err = db.Model(&ArticleModel{}).Where("published BETWEEN ? AND ?", yearAgo, today).Count(&count).Error
 		if err != nil {
 			log.Error().Err(err).Msg("failed to count articles")
 			continue

@@ -10,12 +10,24 @@ import (
 )
 
 type ArticleModel struct {
-	ID        ArticleID `gorm:"primaryKey"`
+	ID        ArticleID `gorm:"primaryKey;autoIncrement:false"`
 	Published time.Time
 }
 
 func (m ArticleModel) TableName() string {
 	return "articles"
+}
+
+// PageModel tracks next page for crawling to avoid redundant crawling
+type PageModel struct {
+	Tenant   Tenant   `gorm:"primaryKey;autoIncrement:false"`
+	Category Category `gorm:"primaryKey;autoIncrement:false"`
+
+	NextPage string
+}
+
+func (p PageModel) TableName() string {
+	return "page"
 }
 
 func NewDB(postgresDSN string) (*gorm.DB, error) {
@@ -39,7 +51,7 @@ func NewDB(postgresDSN string) (*gorm.DB, error) {
 	}
 
 	// TODO: Replace with proper migration (but should be enough)
-	err = db.AutoMigrate(&ArticleModel{})
+	err = db.AutoMigrate(&ArticleModel{}, &PageModel{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to migrate schema: %w", err)
 	}
