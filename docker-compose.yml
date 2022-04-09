@@ -11,12 +11,17 @@ services:
     volumes:
       - "postgres-data:/var/lib/postgresql/data"
 
-  crawler:
+  server:
     image: ${DOCKER_IMAGE_TAG}
     ports:
       - "8080:8080"
     command:
-      - /app/crawler
+      - /app/crawler-server
+
+  crawler-history:
+    image: ${DOCKER_IMAGE_TAG}
+    command:
+      - /app/crawler-history
 
 volumes:
   postgres-data:

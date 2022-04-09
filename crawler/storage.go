@@ -20,8 +20,7 @@ func (m ArticleModel) TableName() string {
 
 // PageModel tracks next page for crawling to avoid redundant crawling
 type PageModel struct {
-	Tenant   Tenant   `gorm:"primaryKey;autoIncrement:false"`
-	Category Category `gorm:"primaryKey;autoIncrement:false"`
+	StartPage string `gorm:"primaryKey"`
 
 	NextPage string
 }

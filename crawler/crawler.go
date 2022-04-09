@@ -12,57 +12,74 @@ import (
 var ErrNoMorePages = errors.New("no more pages")
 
 type Crawler struct {
-	*resty.Client
-	db *gorm.DB
+	client *resty.Client
+	db     *gorm.DB
 
-	// TODO: Find better way to track initial page
-	host      string
-	tenant    Tenant
-	category  Category
-	startDate time.Time
+	baseURL string
 
 	// TODO: Find better way to track last page
-	endDate time.Time
+	startDate time.Time
+	stopDate  time.Time
+}
+
+// TODO: Proper way to parse path params
+func getDateFromPageURL(baseURL, pageURL string) (*time.Time, error) {
+	var nextPageDateStr string
+	_, err := fmt.Sscanf(pageURL, baseURL+"/"+"%s", &nextPageDateStr)
+	if err != nil {
+		return nil, fmt.Errorf("malformed nextPageUrl %q: %w", pageURL, err)
+	}
+	nextPageDate, err := time.Parse("2006/01/02", nextPageDateStr)
+	if err != nil {
+		return nil, fmt.Errorf("malformed date: %q: %w", nextPageDateStr, err)
+	}
+
+	return &nextPageDate, nil
+}
+
+func getPageURLFromDate(baseURL string, date time.Time) string {
+	return fmt.Sprintf("%s/%s", baseURL, date.Format("2006/01/02"))
 }
 
 // NewCrawler which iterates over categoryHistory and stores current page in database
-func NewCrawler(db *gorm.DB, host string, tenant Tenant, category Category, startDate, endDate time.Time) *Crawler {
-	return &Crawler{Client: resty.New(), db: db, tenant: tenant, category: category, host: host, endDate: endDate, startDate: startDate}
+func NewCrawler(db *gorm.DB, baseURL string, startDate, endDate time.Time) *Crawler {
+	return &Crawler{
+		db:      db,
+		client:  resty.New(),
+		baseURL: baseURL,
+
+		startDate: startDate,
+		stopDate:  endDate,
+	}
 }
 
 func (c *Crawler) NextPage() (*ArticlesPage, error) {
-	// Get next page or use default page
-	var nextPage PageModel
-	result := c.db.Model(&nextPage).Find(&nextPage, "tenant = ? AND category = ?", c.tenant, c.category)
+	startPageURL := getPageURLFromDate(c.baseURL, c.startDate)
+
+	// Get old page or set default
+	nextPage := &PageModel{}
+	result := c.db.Find(&nextPage, "start_page = ?", getPageURLFromDate(c.baseURL, c.startDate))
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to get previous page: %w", result.Error)
 	}
-	// If no next page for this tenant and category
 	if result.RowsAffected == 0 {
-		// TODO: Not the best idea but should be good enough for now
-		// https://<CMS_API>/<tenant>/categoryHistory/<category>/YYYY/MM/DD
-		nextPage.NextPage = fmt.Sprintf("%s/%d/categoryHistory/%d/%s", c.host, c.tenant, c.category, c.startDate.Format("2006/01/02"))
+		nextPage = &PageModel{
+			StartPage: startPageURL,
+			NextPage:  startPageURL,
+		}
 	}
 
-	// TODO: Proper way to parse path params
-	// Check if this page is last
-	var nextPageDate string
-	_, err := fmt.Sscanf(nextPage.NextPage, fmt.Sprintf("%s/%d/categoryHistory/%d/%%s", c.host, c.tenant, c.category), &nextPageDate)
+	// Check if we need to stop
+	nextPageDate, err := getDateFromPageURL(c.baseURL, nextPage.NextPage)
 	if err != nil {
-		return nil, fmt.Errorf("malformed nextPageUrl %q: %w", nextPage.NextPage, err)
+		return nil, err
 	}
-	d, err := time.Parse("2006/01/02", nextPageDate)
-	if err != nil {
-		return nil, fmt.Errorf("malformed date: %q: %w", nextPageDate, err)
-	}
-
-	// TODO: Check if it's actually true
-	// If nextPage is before endDate then we already crawled it
-	if d.Before(c.endDate) {
+	if nextPageDate.Before(c.stopDate) {
 		return nil, ErrNoMorePages
 	}
 
-	resp, err := c.R().Get(nextPage.NextPage)
+	// Get next page and move next page in db
+	resp, err := c.client.R().Get(nextPage.NextPage)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get data from API: %w", err)
 	}
@@ -81,9 +98,8 @@ func (c *Crawler) NextPage() (*ArticlesPage, error) {
 
 	// Save next page to db
 	err = c.db.Save(&PageModel{
-		Tenant:   c.tenant,
-		Category: c.category,
-		NextPage: *page.Content.NextPage,
+		StartPage: startPageURL,
+		NextPage:  *page.Content.NextPage,
 	}).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to save current page to db: %w", err)

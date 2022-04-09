@@ -8,7 +8,8 @@ import (
 )
 
 // TODO: Move to env variables (they are not real secrets here, just local dev config)
-const cmsHost = "https://feed-prod.unitycms.io"
+// TODO: https://<HOST>/<tenant>/categoryHistory/<category>, check Tenant and Category
+const cmsBaseURL = "https://feed-prod.unitycms.io/2/categoryHistory/6"
 const postgresDSN = "postgres://corona-user:corona-password@postgres/corona-crawler"
 
 func Run() error {
@@ -20,7 +21,7 @@ func Run() error {
 	today := time.Now()
 	yearAgo := today.AddDate(-1, 0, 0)
 
-	c := NewCrawler(db, cmsHost, TenantTwo, CategorySchweiz, today, yearAgo)
+	c := NewCrawler(db, cmsBaseURL, today, yearAgo)
 	for range time.Tick(200 * time.Millisecond) {
 		page, err := c.NextPage()
 		if err == ErrNoMorePages {
@@ -51,16 +52,6 @@ func Run() error {
 			log.Error().Err(err).Msg("failed to save page")
 			continue
 		}
-
-		// TODO: Debug
-		var count int64
-		err = db.Model(&ArticleModel{}).Where("published BETWEEN ? AND ?", yearAgo, today).Count(&count).Error
-		if err != nil {
-			log.Error().Err(err).Msg("failed to count articles")
-			continue
-		}
-
-		log.Info().Int64("articles", count).Send()
 	}
 
 	return nil
