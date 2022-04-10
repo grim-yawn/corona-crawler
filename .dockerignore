@@ -1,0 +1,14 @@
+# IDE
+.idea/
+
+# Project
+.git/
+.gitignore
+docker-compose.yml
+docker-compose.test.yml
+Dockerfile
+Makefile
+README.md
+
+scripts/
+tests/testdata/

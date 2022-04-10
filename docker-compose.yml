@@ -23,5 +23,10 @@ services:
     command:
       - /app/crawler-history
 
+  crawler-latest:
+    image: ${DOCKER_IMAGE_TAG}
+    command:
+      - /app/crawler-latest
+
 volumes:
   postgres-data:

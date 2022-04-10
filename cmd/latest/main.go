@@ -8,7 +8,8 @@ import (
 	"corona-crawler/articles"
 	"corona-crawler/client"
 	"corona-crawler/db"
-	"corona-crawler/history"
+	crawler "corona-crawler/history"
+	"corona-crawler/latest"
 )
 
 // Category specifies which category we need to crawl
@@ -35,18 +36,11 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to create database")
 	}
 
-	// TODO: Move to config
-	// TODO: Use it for parallel processing: split this date range into N parts and run them in parallel
-	// Should work as intended bc current state saved by StartDate key
-	today := time.Now()
-	yearAgo := today.AddDate(-1, 0, 0)
-
 	articleClient := client.New(cmsBaseURL)
-	stateStorage := crawler.NewStateStorage(gormDB)
 	articlesStorage := articles.NewStorage(gormDB)
 
 	// TODO: Proper config
-	c := crawler.NewCrawler(stateStorage, articleClient, CategorySchweiz, today, yearAgo, articles.ArticleAboutCovid)
+	c := latest.NewCrawler(articleClient, CategorySchweiz, articles.ArticleAboutCovid)
 	for range time.Tick(200 * time.Millisecond) {
 		page, err := c.NextPage()
 		if err == crawler.ErrNoMorePages {

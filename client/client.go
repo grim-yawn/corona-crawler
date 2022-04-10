@@ -1,11 +1,14 @@
 package client
 
 import (
-	"corona-crawler/utils"
 	"encoding/json"
 	"fmt"
-	"github.com/go-resty/resty/v2"
+	"strconv"
 	"time"
+
+	"github.com/go-resty/resty/v2"
+
+	"corona-crawler/utils"
 )
 
 type Client struct {
@@ -38,6 +41,19 @@ func (c *Client) GetCategoryHistory(category int, endDate time.Time) (*CategoryH
 }
 
 // GetCategory return latest articles in category
-func (c *Client) GetCategory(category int) error {
-	return nil
+func (c *Client) GetCategory(category int) (*CategoryResponse, error) {
+	resp, err := c.R().Get("category" + "/" + strconv.Itoa(category))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get data from API: %w", err)
+	}
+	if !resp.IsSuccess() {
+		return nil, fmt.Errorf("bad status from API (%d, %s)", resp.StatusCode(), resp.Status())
+	}
+
+	categoryResp := &CategoryResponse{}
+	err = json.Unmarshal(resp.Body(), categoryResp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse API response: %w", err)
+	}
+	return categoryResp, nil
 }

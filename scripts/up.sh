@@ -9,4 +9,6 @@ function cleanup() {
 
 trap cleanup EXIT
 
-docker-compose up
+docker-compose up -d
+
+docker-compose logs -f server crawler-history crawler-latest

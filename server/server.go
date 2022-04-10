@@ -1,16 +1,19 @@
 package server
 
 import (
-	"corona-crawler/crawler"
+	"time"
+
+	"corona-crawler/articles"
+	"corona-crawler/db"
+
 	"github.com/labstack/echo/v4"
 	"github.com/rs/zerolog/log"
-	"time"
 )
 
 const postgresDSN = "postgres://corona-user:corona-password@postgres/corona-crawler"
 
 func Run() error {
-	db, err := crawler.NewDB(postgresDSN)
+	gormDB, err := db.New(postgresDSN)
 	if err != nil {
 		return err
 	}
@@ -23,7 +26,7 @@ func Run() error {
 		yearAgo := time.Now().AddDate(-1, 0, 0)
 
 		var count int64
-		err := db.Model(&crawler.ArticleModel{}).Where("published > ?", yearAgo).Count(&count).Error
+		err := gormDB.Model(&articles.ShortModel{}).Where("published > ?", yearAgo).Count(&count).Error
 		if err != nil {
 			log.Error().Err(err).Msg("failed to count articles")
 			return echo.ErrInternalServerError
