@@ -1,6 +1,7 @@
 package crawler
 
 import (
+	"corona-crawler/client"
 	"fmt"
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm/clause"
@@ -9,7 +10,7 @@ import (
 
 // TODO: Move to env variables (they are not real secrets here, just local dev config)
 // TODO: https://<HOST>/<tenant>/categoryHistory/<category>, check Tenant and Category
-const cmsBaseURL = "https://feed-prod.unitycms.io/2/categoryHistory/6"
+const cmsBaseURL = "https://feed-prod.unitycms.io/2"
 const postgresDSN = "postgres://corona-user:corona-password@postgres/corona-crawler"
 
 func Run() error {
@@ -21,7 +22,9 @@ func Run() error {
 	today := time.Now()
 	yearAgo := today.AddDate(-1, 0, 0)
 
-	c := NewCrawler(db, cmsBaseURL, today, yearAgo)
+	articleClient := client.New(cmsBaseURL)
+
+	c := NewCrawler(db, articleClient, CategorySchweiz, today, yearAgo, ArticleFilterFunc(ArticleAboutCovid))
 	for range time.Tick(200 * time.Millisecond) {
 		page, err := c.NextPage()
 		if err == ErrNoMorePages {
@@ -32,14 +35,8 @@ func Run() error {
 			return fmt.Errorf("failed to get next page: %w", err)
 		}
 
-		models := make([]ArticleModel, 0, len(page.Content.Elements))
-		for _, el := range page.Content.Elements {
-			if el.IsAboutCovid() {
-				models = append(models, ArticleModel{ID: el.ID, Published: el.Content.Published})
-			}
-		}
 		// Skip if page doesn't have any articles about covid
-		if len(models) == 0 {
+		if len(page) == 0 {
 			continue
 		}
 
@@ -47,7 +44,7 @@ func Run() error {
 		err = db.Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "id"}},
 			UpdateAll: true,
-		}).Create(&models).Error
+		}).Create(&page).Error
 		if err != nil {
 			log.Error().Err(err).Msg("failed to save page")
 			continue

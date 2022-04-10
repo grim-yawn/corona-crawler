@@ -5,9 +5,12 @@ COPY go.mod go.mod
 COPY go.sum go.sum
 RUN go mod download
 
+# TODO: Should probably replace with COPY . . and .dockerignore file
 COPY cmd cmd
+COPY client client
 COPY crawler crawler
 COPY server server
+COPY utils utils
 COPY tests tests
 
 RUN go build -o /app/bin/history /app/cmd/history

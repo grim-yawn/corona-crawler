@@ -10,7 +10,7 @@ import (
 )
 
 type ArticleModel struct {
-	ID        ArticleID `gorm:"primaryKey;autoIncrement:false"`
+	ID        int `gorm:"primaryKey;autoIncrement:false"`
 	Published time.Time
 }
 

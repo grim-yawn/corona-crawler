@@ -1,64 +1,92 @@
 package crawler
 
 import (
-	"encoding/json"
+	"corona-crawler/client"
+	"corona-crawler/utils"
 	"errors"
 	"fmt"
-	"github.com/go-resty/resty/v2"
 	"gorm.io/gorm"
+	"strings"
 	"time"
 )
+
+type Article struct {
+	ID int
+
+	Title     string
+	TitleHead string
+	Lead      string
+
+	Published time.Time
+}
+
+type ArticleFilterer interface {
+	FilterArticle(article Article) bool
+}
+
+type ArticleFilterFunc func(article Article) bool
+
+func (f ArticleFilterFunc) FilterArticle(article Article) bool {
+	return f(article)
+}
+
+func ArticleAboutCovid(article Article) bool {
+	// TODO: Not the smartest way to compare strings but don't want to use regexp here
+	// TODO: Proper case insensitive match with regexp?
+	for _, sub := range []string{"Corona", "Covid-19"} {
+		if strings.Contains(article.Title, sub) {
+			return true
+		}
+		if strings.Contains(article.TitleHead, sub) {
+			return true
+		}
+		if strings.Contains(article.Lead, sub) {
+			return true
+		}
+	}
+
+	return false
+}
 
 var ErrNoMorePages = errors.New("no more pages")
 
 type Crawler struct {
-	client *resty.Client
+	client *client.Client
 	db     *gorm.DB
 
-	baseURL string
+	category int
 
 	// TODO: Find better way to track last page
 	startDate time.Time
 	stopDate  time.Time
-}
 
-// TODO: Proper way to parse path params
-func getDateFromPageURL(baseURL, pageURL string) (*time.Time, error) {
-	var nextPageDateStr string
-	_, err := fmt.Sscanf(pageURL, baseURL+"/"+"%s", &nextPageDateStr)
-	if err != nil {
-		return nil, fmt.Errorf("malformed nextPageUrl %q: %w", pageURL, err)
-	}
-	nextPageDate, err := time.Parse("2006/01/02", nextPageDateStr)
-	if err != nil {
-		return nil, fmt.Errorf("malformed date: %q: %w", nextPageDateStr, err)
-	}
-
-	return &nextPageDate, nil
-}
-
-func getPageURLFromDate(baseURL string, date time.Time) string {
-	return fmt.Sprintf("%s/%s", baseURL, date.Format("2006/01/02"))
+	//
+	filter ArticleFilterer
 }
 
 // NewCrawler which iterates over categoryHistory and stores current page in database
-func NewCrawler(db *gorm.DB, baseURL string, startDate, endDate time.Time) *Crawler {
+func NewCrawler(db *gorm.DB, c *client.Client, category int, startDate, endDate time.Time, filter ArticleFilterer) *Crawler {
 	return &Crawler{
-		db:      db,
-		client:  resty.New(),
-		baseURL: baseURL,
+		db:     db,
+		client: c,
+
+		category: category,
 
 		startDate: startDate,
 		stopDate:  endDate,
+
+		filter: filter,
 	}
 }
 
-func (c *Crawler) NextPage() (*ArticlesPage, error) {
-	startPageURL := getPageURLFromDate(c.baseURL, c.startDate)
+// NextPage returns slice of ArticleModels or ErrNoMorePages
+// Result can be an empty slice and error=nil, if all pages were filtered
+func (c *Crawler) NextPage() ([]ArticleModel, error) {
+	startPageURL := utils.GetCategoryHistoryURLFromDate(c.client.BaseURL, c.category, c.startDate)
 
 	// Get old page or set default
 	nextPage := &PageModel{}
-	result := c.db.Find(&nextPage, "start_page = ?", getPageURLFromDate(c.baseURL, c.startDate))
+	result := c.db.Find(&nextPage, "start_page = ?", startPageURL)
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to get previous page: %w", result.Error)
 	}
@@ -70,7 +98,7 @@ func (c *Crawler) NextPage() (*ArticlesPage, error) {
 	}
 
 	// Check if we need to stop
-	nextPageDate, err := getDateFromPageURL(c.baseURL, nextPage.NextPage)
+	nextPageDate, err := utils.GetDateFromCategoryHistoryURL(nextPage.NextPage, c.category)
 	if err != nil {
 		return nil, err
 	}
@@ -78,32 +106,40 @@ func (c *Crawler) NextPage() (*ArticlesPage, error) {
 		return nil, ErrNoMorePages
 	}
 
-	// Get next page and move next page in db
-	resp, err := c.client.R().Get(nextPage.NextPage)
+	history, err := c.client.GetCategoryHistory(c.category, *nextPageDate)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get data from API: %w", err)
+		return nil, err
 	}
-	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("bad status from API (%d, %s)", resp.StatusCode(), resp.Status())
+	if history.Content.NextPage == nil {
+		return nil, ErrNoMorePages
 	}
 
-	page := &ArticlesPage{}
-	err = json.Unmarshal(resp.Body(), page)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse API response: %w", err)
-	}
-	if page.Content.NextPage == nil {
-		return nil, ErrNoMorePages
+	// Filter articles
+	articles := make([]ArticleModel, 0, len(history.Content.Elements))
+	for _, el := range history.Content.Elements {
+		article := Article{
+			ID:        el.ID,
+			Title:     el.Content.Title,
+			TitleHead: el.Content.TitleHeader,
+			Lead:      el.Content.Lead,
+			Published: el.Content.Published,
+		}
+
+		if !c.filter.FilterArticle(article) {
+			continue
+		}
+
+		articles = append(articles, ArticleModel{ID: article.ID, Published: el.Content.Published})
 	}
 
 	// Save next page to db
 	err = c.db.Save(&PageModel{
 		StartPage: startPageURL,
-		NextPage:  *page.Content.NextPage,
+		NextPage:  *history.Content.NextPage,
 	}).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to save current page to db: %w", err)
 	}
 
-	return page, err
+	return articles, nil
 }
